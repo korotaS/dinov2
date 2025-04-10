@@ -10,12 +10,27 @@ import random
 def collate_data_and_cast(samples_list, mask_ratio_tuple, mask_probability, dtype, n_tokens=None, mask_generator=None):
     # dtype = torch.half  # TODO: Remove
 
-    n_global_crops = len(samples_list[0][0]["global_crops"])
-    n_local_crops = len(samples_list[0][0]["local_crops"])
+    n_global_crops = len(samples_list[0][0]["global_crops"]) if isinstance(samples_list[0][0], dict) else len(samples_list[0][0][0]["global_crops"])
+    n_local_crops = len(samples_list[0][0]["local_crops"]) if isinstance(samples_list[0][0], dict) else len(samples_list[0][0][0]["local_crops"])
 
-    collated_global_crops = torch.stack([s[0]["global_crops"][i] for i in range(n_global_crops) for s in samples_list])
+    # for i, s in enumerate(samples_list):
+    #     if isinstance(s[0], tuple) and isinstance(s[0][0], tuple):
+    #         print(s[0][0])
+    #         exit(0)
 
-    collated_local_crops = torch.stack([s[0]["local_crops"][i] for i in range(n_local_crops) for s in samples_list])
+    collated_global_crops = torch.stack([
+        s[0]["global_crops"][i] if isinstance(s[0], dict) else 
+        s[0][0]["global_crops"][i] if isinstance(s[0][0], dict) else s[0][0][0]["global_crops"][i]
+        for i in range(n_global_crops) 
+        for s in samples_list
+    ])
+
+    collated_local_crops = torch.stack([
+        s[0]["local_crops"][i] if isinstance(s[0], dict) else
+        s[0][0]["local_crops"][i] if isinstance(s[0][0], dict) else s[0][0][0]["local_crops"][i]
+        for i in range(n_local_crops) 
+        for s in samples_list
+    ])
 
     B = len(collated_global_crops)
     N = n_tokens

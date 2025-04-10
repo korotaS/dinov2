@@ -19,7 +19,7 @@ import math
 import os
 from functools import partial
 import wandb
-#os.environ["WANDB_MODE"]="offline" #use this so set wandb to offline mode
+os.environ["WANDB_MODE"]="offline" #use this so set wandb to offline mode
 
 from fvcore.common.checkpoint import PeriodicCheckpointer
 import torch
