@@ -78,8 +78,13 @@ def get_downloaded_dino_vit_s():
     return model
 
 # this function returns either a vit_s or vit_g, depending on what is commented out. the model is loaded with from torch.hub wih the weights and the positional encoding is reshaped.
-def get_downloaded_dino_interpolated():
-    model=torch.hub.load('facebookresearch/dinov2', 'dinov2_vits14')
+def get_downloaded_dino_interpolated(version='s'):
+    model=torch.hub.load('./', f'dinov2_vit{version}14', source="local")
+    state_dict = torch.hub.load_state_dict_from_url(
+        f'https://dl.fbaipublicfiles.com/dinov2/dinov2_vit{version}14/dinov2_vit{version}14_pretrain.pth', progress=True
+    )
+    
+    model.load_state_dict(state_dict)
     #model=torch.hub.load('facebookresearch/dinov2', 'dinov2_vitg14')
     input_tensor = model.pos_embed
     tensor_corr_shape = interpolate_pos_encoding(input_tensor, 16, 16)
@@ -140,6 +145,18 @@ def get_dino_finetuned_downloaded(cfg, embed_dim):
     model_teacher.load_state_dict(teacher_state_dict, strict=True)
     return model_student, model_teacher
 
+def count_parameters(model):
+    # Total parameters
+    total_params = sum(p.numel() for p in model.parameters())
+    
+    # Parameters with requires_grad=True (trainable)
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    
+    # Parameters without requires_grad=True (frozen)
+    frozen_params = sum(p.numel() for p in model.parameters() if not p.requires_grad)
+    
+    return total_params, trainable_params, frozen_params
+
 class SSLMetaArch(nn.Module):
     def __init__(self, cfg):
         super().__init__()
@@ -151,8 +168,7 @@ class SSLMetaArch(nn.Module):
 
         # This is commented out, because it was easier to create the model using the torch.hub, as this already returns the pretrained version with the correct architecture.
         #student_backbone, teacher_backbone, embed_dim = build_model_from_cfg(cfg)
-        #embed_dim = 1536 # use for vit_g
-        embed_dim = 384 # use for vit_s
+        embed_dim = 1024 if cfg.student.arch == 'vit_large' else 384  # use for vit_s
 
         # use for cut loading downloaded weights
         '''
@@ -161,8 +177,8 @@ class SSLMetaArch(nn.Module):
         '''
 
         # use for interpolated loading downloaded weights
-        student_backbone = get_downloaded_dino_interpolated()
-        teacher_backbone = get_downloaded_dino_interpolated()
+        student_backbone = get_downloaded_dino_interpolated(version='l' if cfg.student.arch == 'vit_large' else 's')
+        teacher_backbone = get_downloaded_dino_interpolated(version='l' if cfg.student.arch == 'vit_large' else 's')
 
         # use for interpolated loading downloaded weights with registern
         '''
@@ -267,6 +283,25 @@ class SSLMetaArch(nn.Module):
         # for student activate backprop
         for p in self.student.parameters():
             p.requires_grad = True
+
+        if cfg.train.freeze_but_last > 0:
+            print(f'Freezing all but last {cfg.train.freeze_but_last}')
+            # freeze everything
+            for p in self.student.backbone.parameters():
+                p.requires_grad = False
+            # unfreeze last cfg.train.freeze_but_last blocks
+            for block in self.student.backbone.blocks[-cfg.train.freeze_but_last:]:
+                for p in block.parameters():
+                    p.requires_grad = True
+            # unfreeze final norm
+            for p in self.student.backbone.norm.parameters():
+                p.requires_grad = True
+
+        total, trainable, frozen = count_parameters(self.student)
+        print(f"Total parameters: {total:,}")
+        print(f"Trainable parameters (with grad): {trainable:,}")
+        print(f"Frozen parameters (without grad): {frozen:,}")
+            
         # disable backpropagation for student.backbone, this was tested to only train the dino_head without the backbone
         '''
         for p in self.student.backbone.parameters():
@@ -505,7 +540,7 @@ class SSLMetaArch(nn.Module):
 
         self.backprop_loss(loss_accumulator)
 
-        self.fsdp_synchronize_streams()
+        # self.fsdp_synchronize_streams()
 
         return loss_dict
 
@@ -539,9 +574,19 @@ class SSLMetaArch(nn.Module):
                         student_param_list += ms.params
                         teacher_param_list += mt.params
                 '''
-                for ms, mt in zip(get_fsdp_modules(self.student[k]), get_fsdp_modules(self.teacher[k])):
+                if len(get_fsdp_modules(self.student[k])) > 0:
+                    for ms, mt in zip(get_fsdp_modules(self.student[k]), get_fsdp_modules(self.teacher[k])):
                         student_param_list += ms.params
                         teacher_param_list += mt.params
+                else:
+                    for (name_s, p_s), (name_t, p_t) in zip(
+                        self.student[k].named_parameters(),
+                        self.teacher[k].named_parameters(),
+                    ):
+                        if p_s.requires_grad:
+                            student_param_list.append(p_s)
+                            teacher_param_list.append(p_t)
+                
             torch._foreach_mul_(teacher_param_list, m)
             torch._foreach_add_(teacher_param_list, student_param_list, alpha=1 - m)
 

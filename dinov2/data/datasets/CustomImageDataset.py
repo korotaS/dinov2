@@ -1,5 +1,6 @@
 # this file was added completely new
 
+import json
 import os
 import pandas as pd
 from torchvision.io import read_image
@@ -51,12 +52,25 @@ class CustomImageDataset(Dataset):
             transform=None,
             target_transform=None,
             test_size=0.2,
-            random_state=42):
+            random_state=42,
+            yolo_bbox_path=None
+    ):
         self.img_labels = pd.read_csv(extra)
         self.img_dir = root
         self.transform = transform
         self.target_transform = target_transform
         self.split = split
+        
+        if yolo_bbox_path is not None:
+            with open(yolo_bbox_path, 'r') as r:
+                yolo_bboxes = json.load(r)
+            self.yolo_bboxes = {
+                k.split('___')[1].replace('/home/jovyan/ceph-data/pet911/', '/workspace/'): v
+                for k, v in yolo_bboxes.items()
+            }
+            print(f'Loaded {len(self.yolo_bboxes)} YOLO boxes from path {yolo_bbox_path}')
+        else:
+            self.yolo_bboxes = {}
 
         # split into train and test
         #self.train_data, self.test_data = train_test_split(
@@ -72,6 +86,8 @@ class CustomImageDataset(Dataset):
             with open(img_path, mode="rb") as f:
                 image_pil = f.read()
             image_pil = ImageDataDecoder(image_pil).decode()
+            if img_path in self.yolo_bboxes:
+                image_pil = image_pil.crop(self.yolo_bboxes[img_path])
         except Exception as e:
             # in case of error when reading image, just take a random different one
             random_index = random.randint(0, len(self) - 1)

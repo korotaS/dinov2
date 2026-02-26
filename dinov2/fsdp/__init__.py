@@ -98,9 +98,9 @@ class FSDPCheckpointer(Checkpointer):
 
         data = {}
         # change this line of code to switch between one GPU and several GPUs
-        #with FSDP.state_dict_type(self.model, StateDictType.LOCAL_STATE_DICT):
-        with FSDP.state_dict_type(self.model, StateDictType.FULL_STATE_DICT):
-            data["model"] = self.model.state_dict()
+        # with FSDP.state_dict_type(self.model, StateDictType.LOCAL_STATE_DICT):
+        # with FSDP.state_dict_type(self.model, StateDictType.FULL_STATE_DICT):
+        data["model"] = self.model.state_dict()
 
         # data["model"] = self.model.state_dict()
         for key, obj in self.checkpointables.items():
@@ -116,8 +116,8 @@ class FSDPCheckpointer(Checkpointer):
         self.tag_last_checkpoint(basename)
 
     def load(self, *args, **kwargs):
-        with FSDP.state_dict_type(self.model, StateDictType.LOCAL_STATE_DICT):
-            return super().load(*args, **kwargs)
+        # with FSDP.state_dict_type(self.model, StateDictType.LOCAL_STATE_DICT):
+        return super().load(*args, **kwargs)
 
     def has_checkpoint(self) -> bool:
         """

@@ -65,6 +65,8 @@ def setup(args):
     Create configs and perform basic setups.
     """
     cfg = get_cfg_from_args(args)
+    args.output_dir = os.path.join(cfg.train.output_dir, cfg.train.exp_name)
+    cfg.train.output_dir = os.path.join(cfg.train.output_dir, cfg.train.exp_name)
     os.makedirs(args.output_dir, exist_ok=True)
     default_setup(args)
     apply_scaling_rules_to_cfg(cfg)

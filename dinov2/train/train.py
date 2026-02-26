@@ -18,11 +18,13 @@ import logging
 import math
 import os
 from functools import partial
-import wandb
+from datetime import datetime
+# import wandb
 #os.environ["WANDB_MODE"]="offline" #use this so set wandb to offline mode
 
 from fvcore.common.checkpoint import PeriodicCheckpointer
 import torch
+from torch.utils.tensorboard import SummaryWriter
 
 from dinov2.data import SamplerType, make_data_loader, make_dataset
 from dinov2.data import collate_data_and_cast, DataAugmentationDINO, MaskingGenerator
@@ -62,7 +64,7 @@ For python-based LazyConfig, use "path.key=value".
     parser.add_argument(
         "--output-dir",
         "--output_dir",
-        default="",
+        default="data/runs/dino_training/",
         type=str,
         help="Output directory to save logs and checkpoints",
     )
@@ -148,19 +150,19 @@ def do_test(cfg, model, iteration):
         student_ckp_path = os.path.join(eval_dir, "student_checkpoint.pth")
         torch.save({"student": new_state_dict_student}, student_ckp_path)
 
-        # Save state_dict_teacher_dino_head for the teacher model
-        teacher_dino_head_ckp_path = os.path.join(eval_dir, "teacher_dino_head_checkpoint.pth")
-        torch.save({"teacher_dino_head": state_dict_teacher_dino_head}, teacher_dino_head_ckp_path)
+#         # Save state_dict_teacher_dino_head for the teacher model
+#         teacher_dino_head_ckp_path = os.path.join(eval_dir, "teacher_dino_head_checkpoint.pth")
+#         torch.save({"teacher_dino_head": state_dict_teacher_dino_head}, teacher_dino_head_ckp_path)
 
-        # Save state_dict_student_dino_head for the student model
-        student_dino_head_ckp_path = os.path.join(eval_dir, "student_dino_head_checkpoint.pth")
-        torch.save({"student_dino_head": state_dict_student_dino_head}, student_dino_head_ckp_path)
+#         # Save state_dict_student_dino_head for the student model
+#         student_dino_head_ckp_path = os.path.join(eval_dir, "student_dino_head_checkpoint.pth")
+#         torch.save({"student_dino_head": state_dict_student_dino_head}, student_dino_head_ckp_path)
 
 
 def do_train(cfg, model, resume=False): # change resume to true?
     model.train()
-    inputs_dtype = torch.half
-    fp16_scaler = model.fp16_scaler  # for mixed precision training
+    inputs_dtype = torch.float32  # torch.half  # 
+    fp16_scaler = None  # model.fp16_scaler  # for mixed precision training
 
     # setup optimizer
 
@@ -238,9 +240,11 @@ def do_train(cfg, model, resume=False): # change resume to true?
         collate_fn=collate_fn,
     )
 
-    run = wandb.init(
-    # Set the project where this run will be logged
-    project="dino_training")
+#     run = wandb.init(
+#     # Set the project where this run will be logged
+#     project="dino_training")
+
+    writer = SummaryWriter(log_dir=f"data/runs/dino_training/{cfg.train.exp_name}")
 
 
     # training loop
@@ -289,7 +293,8 @@ def do_train(cfg, model, resume=False): # change resume to true?
         else:
             if cfg.optim.clip_grad:
                 for v in model.student.values():
-                    v.clip_grad_norm_(cfg.optim.clip_grad)
+                    # v.clip_grad_norm_(cfg.optim.clip_grad)
+                    torch.nn.utils.clip_grad_norm_(v.parameters(), cfg.optim.clip_grad)
             optimizer.step()
 
         # perform teacher EMA update
@@ -310,9 +315,26 @@ def do_train(cfg, model, resume=False): # change resume to true?
         losses_reduced = sum(loss for key, loss in loss_dict_reduced.items() if key != 'koleo_loss')
 
         # wandb logging
-        wandb.log({"lr": lr, "loss": losses_reduced, "wd": wd, "mom": mom, "last_layer_lr": last_layer_lr, "current_batch_size": current_batch_size
-        , "koleo_loss": loss_dict_reduced['koleo_loss'], "dino_local_crops_loss": loss_dict_reduced['dino_local_crops_loss']
-        , "dino_global_crops_loss": loss_dict_reduced['dino_global_crops_loss'], "ibot_loss": loss_dict_reduced['ibot_loss']})
+#         wandb.log({"lr": lr, "loss": losses_reduced, "wd": wd, "mom": mom, "last_layer_lr": last_layer_lr, "current_batch_size": current_batch_size
+#         , "koleo_loss": loss_dict_reduced['koleo_loss'], "dino_local_crops_loss": loss_dict_reduced['dino_local_crops_loss']
+#         , "dino_global_crops_loss": loss_dict_reduced['dino_global_crops_loss'], "ibot_loss": loss_dict_reduced['ibot_loss']})
+        
+        if iteration % 50 == 0:
+            metrics = {
+                "train/lr": lr,
+                "train/loss": losses_reduced,
+                "train/wd": wd,
+                "train/mom": mom,
+                "train/last_layer_lr": last_layer_lr,
+                "train/current_batch_size": current_batch_size,
+                "loss/koleo": loss_dict_reduced["koleo_loss"],
+                "loss/dino_local_crops": loss_dict_reduced["dino_local_crops_loss"],
+                "loss/dino_global_crops": loss_dict_reduced["dino_global_crops_loss"],
+                "loss/ibot": loss_dict_reduced["ibot_loss"],
+            }
+            for k, v in metrics.items():
+                writer.add_scalar(k, v, iteration)
+        
         metric_logger.update(lr=lr)
         metric_logger.update(wd=wd)
         metric_logger.update(mom=mom)
@@ -334,9 +356,14 @@ def do_train(cfg, model, resume=False): # change resume to true?
 
 def main(args):
     cfg = setup(args)
+    print('OUTPUT DIR', cfg.train.output_dir)
 
     model = SSLMetaArch(cfg).to(torch.device("cuda"))
-    model.prepare_for_distributed_training()
+
+    if cfg.train.use_fsdp:
+        model.prepare_for_distributed_training()
+    else:
+        print(f'Not using FSDP!')
 
     logger.info("Model:\n{}".format(model))
     if args.eval_only:
@@ -348,7 +375,7 @@ def main(args):
         )
         return do_test(cfg, model, f"manual_{iteration}")
 
-    do_train(cfg, model, resume=not args.no_resume)
+    do_train(cfg, model, resume=False)
 
 
 if __name__ == "__main__":

@@ -67,23 +67,27 @@ class DataAugmentationDINO(object):
         color_jittering = transforms.Compose(
             [
                 transforms.RandomApply(
-                    [transforms.ColorJitter(brightness=0.4, contrast=0.4, saturation=0.2, hue=0.1)],
-                    p=0.8,
+                    [transforms.ColorJitter(
+                        brightness=0.1, 
+                        contrast=0.1, 
+                        saturation=0.1, 
+                        hue=0.02)],
+                    p=0.3,
                 ),
-                transforms.RandomGrayscale(p=0.2),
+                # transforms.RandomGrayscale(p=0.2),
             ]
         )
 
-        global_transfo1_extra = GaussianBlur(p=1.0)
+        global_transfo1_extra = GaussianBlur(p=0.3)
 
         global_transfo2_extra = transforms.Compose(
             [
                 GaussianBlur(p=0.1),
-                transforms.RandomSolarize(threshold=128, p=0.2),
+                # transforms.RandomSolarize(threshold=128, p=0.2),
             ]
         )
 
-        local_transfo_extra = GaussianBlur(p=0.5)
+        local_transfo_extra = GaussianBlur(p=0.2)
 
         # normalization
         self.normalize = transforms.Compose(
