@@ -2,7 +2,7 @@
 MODEL:
   WEIGHTS: '' 
 compute_precision:
-  grad_scaler: false
+  grad_scaler: true
   teacher:
     backbone:
       sharding_strategy: SHARD_GRAD_OP
@@ -60,19 +60,19 @@ ibot:
   head_nlayers: 3
   head_hidden_dim: 2048
 train:
-  use_fsdp: false
-  batch_size_per_gpu: 200 # 112 for full, 200 for 4 blocks
+  use_fsdp: true
+  batch_size_per_gpu: 112 # 112 for full, 200 for 4 blocks
   
   dataset_path: CustomImageDataset:split=TRAIN:root=/workspace/data/images/:extra=/workspace/data/paths_no_anno.csv:yolo_bbox_path=/workspace/data/post_id_path_to_yolov9e_bbox.json
   output_dir: data/runs/dino_training/ # change to something reasonable
-  exp_name: vitl_bs200_all_data_e30_oel1k_le5e-5__less_color__yolov9e__frbl4
-  freeze_but_last: 4
+  exp_name: vitl_bs112_all_data_e45_oel3k_le5e-5__less_color__yolov9e__fullft
+  freeze_but_last: 0
   saveckp_freq: 2
   seed: 0
   
   num_workers: 8  # !!!!!!!!!!!!!!!!!!!!!!!!!!
   
-  OFFICIAL_EPOCH_LENGTH: 1000
+  OFFICIAL_EPOCH_LENGTH: 3000
   cache_dataset: true
   centering: "sinkhorn_knopp" # or "sinkhorn_knopp" or "centering"
 student:
@@ -91,18 +91,18 @@ student:
   interpolate_antialias: false
   interpolate_offset: 0.1
 teacher:
-  momentum_teacher: 0.998
+  momentum_teacher: 0.996
   final_momentum_teacher: 1
   warmup_teacher_temp: 0.04
   teacher_temp: 0.07
   warmup_teacher_temp_epochs: 20 # original was 30
 optim:
-  epochs: 30 #200 for bs 256
+  epochs: 45 #200 for bs 256
   weight_decay: 0.04 # 0.04 original
   weight_decay_end: 0.1
   base_lr: 5.0e-05  # learning rate for a batch size of 1024 is 2.0e-04
   lr: 0.  # will be set after applying scaling rule
-  warmup_epochs: 2
+  warmup_epochs: 4
   min_lr: 1.0e-06
   clip_grad: 3.0
   freeze_last_layer_epochs: 1 #original 1
@@ -122,7 +122,7 @@ crops:
   global_crops_size: 224 #original 224 -> 518 necessary for loading checkpoints, however, interpolation can be used to adapt the size
   local_crops_size: 98 #original 96 -> has to be divideable by 14
 evaluation:
-  eval_period_iterations: 2000 # original 12500, what better -> use 1000 for finetuning
+  eval_period_iterations: 9000 # original 12500, what better -> use 1000 for finetuning
 # add a link to an /eval/training_iterations here, to continue with training to load the dino head weights as well, important: also set the start iterations!
 head:
   head_path:

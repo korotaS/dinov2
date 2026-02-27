@@ -540,7 +540,8 @@ class SSLMetaArch(nn.Module):
 
         self.backprop_loss(loss_accumulator)
 
-        # self.fsdp_synchronize_streams()
+        if self.cfg.train.use_fsdp:
+            self.fsdp_synchronize_streams()
 
         return loss_dict
 

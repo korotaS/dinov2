@@ -147,8 +147,8 @@ def do_test(cfg, model, iteration):
         teacher_ckp_path = os.path.join(eval_dir, "teacher_checkpoint.pth")
         torch.save({"teacher": new_state_dict}, teacher_ckp_path)
         # save student checkpoint
-        student_ckp_path = os.path.join(eval_dir, "student_checkpoint.pth")
-        torch.save({"student": new_state_dict_student}, student_ckp_path)
+        # student_ckp_path = os.path.join(eval_dir, "student_checkpoint.pth")
+        # torch.save({"student": new_state_dict_student}, student_ckp_path)
 
 #         # Save state_dict_teacher_dino_head for the teacher model
 #         teacher_dino_head_ckp_path = os.path.join(eval_dir, "teacher_dino_head_checkpoint.pth")
@@ -161,8 +161,12 @@ def do_test(cfg, model, iteration):
 
 def do_train(cfg, model, resume=False): # change resume to true?
     model.train()
-    inputs_dtype = torch.float32  # torch.half  # 
-    fp16_scaler = None  # model.fp16_scaler  # for mixed precision training
+    if cfg.train.use_fsdp:
+        inputs_dtype = torch.half
+        fp16_scaler = model.fp16_scaler
+    else:
+        inputs_dtype = torch.float32  # torch.half  # 
+        fp16_scaler = None  # model.fp16_scaler  # for mixed precision training
 
     # setup optimizer
 
@@ -293,8 +297,10 @@ def do_train(cfg, model, resume=False): # change resume to true?
         else:
             if cfg.optim.clip_grad:
                 for v in model.student.values():
-                    # v.clip_grad_norm_(cfg.optim.clip_grad)
-                    torch.nn.utils.clip_grad_norm_(v.parameters(), cfg.optim.clip_grad)
+                    if cfg.train.use_fsdp:
+                        v.clip_grad_norm_(cfg.optim.clip_grad)
+                    else:
+                        torch.nn.utils.clip_grad_norm_(v.parameters(), cfg.optim.clip_grad)
             optimizer.step()
 
         # perform teacher EMA update
